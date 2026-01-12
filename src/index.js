@@ -230,33 +230,34 @@ async function handleWeaponDamage(userId, myPower, opponentPower, currentWeaponN
   // 전투력 차이 계산 (상대가 얼마나 강한지)
   const powerDiff = opponentPower - myPower;
   
-  // 전투력 차이가 음수면 (내가 더 강함) 손상 없음
-  if (powerDiff <= 0) {
+  // 전투력 차이가 음수면 (내가 더 강함) 손상 없음 - 패배 시에만 호출되므로 이 경우는 거의 없음
+  if (powerDiff < 0) {
     return { damaged: false, destroyed: false, message: '', updatedWeaponName: currentWeaponName, updatedLevel: currentLevel };
   }
   
   // 내 전투력을 기준으로 차이 비율 계산 (더 정확함)
   const powerDiffPercent = myPower > 0 ? (powerDiff / myPower) * 100 : 100;
   
-  // 전투력 차이에 따른 확률 계산
+  // 전투력 차이에 따른 확률 계산 (패배 시 항상 손상/파괴 가능성 존재)
   let damageChance = 0;
   let destroyChance = 0;
   
   if (powerDiffPercent <= 30) {
-    // 차이가 작음 (30% 이내): 손상 없음
-    return { damaged: false, destroyed: false, message: '', updatedWeaponName: currentWeaponName, updatedLevel: currentLevel };
+    // 차이가 작음 (30% 이내): 낮은 확률로 손상/파괴 (패배했으니 손상 가능)
+    damageChance = 0.15;
+    destroyChance = 0.03;
   } else if (powerDiffPercent <= 80) {
-    // 차이가 보통 (30-80%): 낮은 확률로 손상
-    damageChance = 0.2;
-    destroyChance = 0;
+    // 차이가 보통 (30-80%): 중간 확률로 손상, 낮은 확률로 파괴
+    damageChance = 0.25;
+    destroyChance = 0.05;
   } else if (powerDiffPercent <= 150) {
-    // 차이가 큼 (80-150%): 중간 확률로 손상, 낮은 확률로 파괴
-    damageChance = 0.35;
-    destroyChance = 0.08;
+    // 차이가 큼 (80-150%): 높은 확률로 손상, 중간 확률로 파괴
+    damageChance = 0.4;
+    destroyChance = 0.12;
   } else {
-    // 차이가 매우 큼 (150% 이상): 높은 확률로 손상, 중간 확률로 파괴
-    damageChance = 0.55;
-    destroyChance = 0.2;
+    // 차이가 매우 큼 (150% 이상): 매우 높은 확률로 손상, 높은 확률로 파괴
+    damageChance = 0.6;
+    destroyChance = 0.25;
   }
   
   // 무기 파괴 확인 (파괴가 우선)
@@ -611,6 +612,14 @@ export default {
       // 특정 유저와 다시 배틀 버튼 처리
       if (customId && customId.startsWith('battle_user_')) {
         const targetUserId = customId.replace('battle_user_', '');
+        
+        // 자기 자신과는 배틀 불가
+        if (String(targetUserId) === String(userId)) {
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: '❌ 자기 자신과는 배틀할 수 없습니다! 상대방만 "다시 전투" 버튼을 사용할 수 있습니다.', flags: 64 }
+          });
+        }
         
         let user = await env.game_db.prepare("SELECT level, money, weapon_name FROM users WHERE id = ?").bind(userId).first();
         if (!user) {
@@ -1131,8 +1140,8 @@ export default {
         
         // 특정 유저 지정 시 해당 유저와 배틀
         if (targetUserId) {
-          // 자기 자신과는 배틀 불가
-          if (targetUserId === userId) {
+          // 자기 자신과는 배틀 불가 (문자열로 변환하여 비교)
+          if (String(targetUserId) === String(userId)) {
             return jsonResponse({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: { content: '❌ 자기 자신과는 배틀할 수 없습니다!', flags: 64 }
