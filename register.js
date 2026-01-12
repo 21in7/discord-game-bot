@@ -13,6 +13,7 @@ const commands = [
   { name: '배틀', description: '몬스터 또는 다른 유저와 싸웁니다.' },
   { name: '묵념', description: '소소한 돈을 줍습니다.' },
   { name: '랭킹', description: 'TOP 5 랭킹을 봅니다.' },
+  { name: '파산', description: '모든 정보를 초기화하고 처음부터 시작합니다.' },
 ];
 
 async function registerCommands() {

@@ -30,11 +30,46 @@ function generateRandomWeapon() {
   return WEAPONS[Math.floor(Math.random() * WEAPONS.length)];
 }
 
-// 무기 판매 가격 계산 (기본 가격 + 강화 레벨 * 100)
+// 무기 판매 가격 계산 (등급별 차등 적용)
 function getWeaponSellPrice(weaponName, level) {
   const weapon = WEAPONS.find(w => w.name === weaponName);
   if (!weapon) return 0;
-  return weapon.basePrice + (level * 100);
+  
+  const basePrice = weapon.basePrice;
+  
+  // 전설급 무기 (전설의 검/도끼/지팡이)
+  if (weaponName.includes('전설의')) {
+    // basePrice * (20 + level * 5) - 예: 전설의 지팡이 13강 = 8000 * (20 + 13*5) = 8000 * 85 = 680,000원
+    return basePrice * (20 + level * 5);
+  }
+  
+  // 신급 무기 (신의 검/도끼/지팡이)
+  if (weaponName.includes('신의')) {
+    // basePrice * (10 + level * 2) - 예: 신의 지팡이 13강 = 3000 * (10 + 13*2) = 3000 * 36 = 108,000원
+    return basePrice * (10 + level * 2);
+  }
+  
+  // 드래곤급 무기 (드래곤 슬레이어/도끼)
+  if (weaponName.includes('드래곤')) {
+    // basePrice * (5 + level) - 예: 드래곤 슬레이어 13강 = 10000 * 18 = 180,000원
+    return basePrice * (5 + level);
+  }
+  
+  // 다이아몬드급 무기
+  if (weaponName.includes('다이아몬드')) {
+    // basePrice * (3 + level * 0.5) - 예: 다이아몬드 검 13강 = 5000 * 9.5 = 47,500원
+    return Math.floor(basePrice * (3 + level * 0.5));
+  }
+  
+  // 미스릴급 무기
+  if (weaponName.includes('미스릴')) {
+    // basePrice * (2 + level * 0.3) - 예: 미스릴 검 13강 = 2000 * 5.9 = 11,800원
+    return Math.floor(basePrice * (2 + level * 0.3));
+  }
+  
+  // 일반/고급 무기 (나무, 철, 강철, 마법, 고대)
+  // basePrice + (level * 1000) - 예: 강철 검 13강 = 1000 + 13000 = 14,000원
+  return basePrice + (level * 1000);
 }
 
 // 무기 설명 가져오기
@@ -57,13 +92,11 @@ function weaponNameToImageFilename(weaponName) {
     '마법 지팡이': 'magic_staff',
 	'미스릴 검': 'mithril_sword',
 	'미스릴 도끼': 'mithril_axe',
-	'미스릴 지팡이': 'mithril_staff',
 	'다이아몬드 검': 'diamond_sword',
 	'다이아몬드 도끼': 'diamond_axe',
-	'다이아몬드 지팡이': 'diamond_staff',
 	'드래곤 슬레이어': 'dragon_slayer',
 	'드래곤 도끼': 'dragon_axe',
-	'드래곤 지팡이': 'dragon_staff',
+	'고대 지팡이': 'old_staff',
 	'신의 검': 'divine_sword',
 	'신의 도끼': 'divine_axe',
 	'신의 지팡이': 'divine_staff',
@@ -91,12 +124,190 @@ function getWeaponImageFilename(weaponName) {
   return weaponNameToImageFilename(weaponName);
 }
 
+// R2 이미지 URL 생성 함수
+// 우선순위: 1. R2 Public URL (가장 빠름) > 2. Workers를 통한 R2 binding (fallback)
+function getWeaponImageUrl(weaponName, r2PublicUrl, requestUrl = null) {
+  const weaponImageFilename = getWeaponImageFilename(weaponName);
+  if (!weaponImageFilename) {
+    return null;
+  }
+  
+  // R2 Public URL이 설정되어 있으면 사용 (가장 빠름)
+  if (r2PublicUrl) {
+    // R2 Public URL 끝에 슬래시가 없으면 추가
+    const baseUrl = r2PublicUrl.endsWith('/') ? r2PublicUrl : `${r2PublicUrl}/`;
+    return `${baseUrl}${weaponImageFilename}`;
+  }
+  
+  // R2 Public URL이 없으면 Workers를 통해 제공 (fallback)
+  // 이 경우 R2 binding을 사용하여 이미지를 제공
+  if (requestUrl) {
+    const baseUrl = new URL(requestUrl);
+    return `${baseUrl.origin}/image/${weaponImageFilename}`;
+  }
+  
+  return null;
+}
+
+// AI API 호출 함수 (Google Gemini Flash) - 최적화 버전
+async function generateAIResponse(resultType, weaponName, level, username, env) {
+  const GEMINI_API_KEY = env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) return null;
+  
+  const resultText = resultType === 'success' ? `강화 성공! +${level}강` 
+    : resultType === 'failure' ? `강화 실패! +${level}강 유지` 
+    : `무기 파괴! +${level}강에서 터짐`;
+  
+  const prompt = `너는 게임 대장장이. 2줄 이내 반말로 반응.
+손님: ${username}, 무기: ${weaponName}, 결과: ${resultText}
+'${username}'과 '${weaponName}'을 반드시 포함해서 말해.`;
+  
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 80, temperature: 0.8 }
+        })
+      }
+    );
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    if (aiResponse) {
+      // 비동기 저장 (에러 무시)
+      env.game_db.prepare("INSERT INTO ai_responses (result_type, response) VALUES (?, ?)")
+        .bind(resultType, aiResponse).run().catch(() => {});
+    }
+    
+    return aiResponse || null;
+  } catch {
+    return null;
+  }
+}
+
+// 저장된 AI 응답 가져오기 (사용 안 함 - 최적화를 위해 비활성화)
+// async function getRandomAIResponse(resultType, env) { ... }
+
+// AI 응답 생성 (바로 generateAIResponse 호출)
+const getAIResponse = generateAIResponse;
+
+// 백그라운드 AI 응답 처리 (공통 함수 - 최적화)
+function processAIResponseInBackground(ctx, env, resultType, weaponName, level, username, embedData, interactionToken, applicationId, components) {
+  if (!interactionToken || !applicationId) return;
+  
+  ctx.waitUntil((async () => {
+    try {
+      const aiResponse = await Promise.race([
+        generateAIResponse(resultType, weaponName, level, username, env),
+        new Promise(resolve => setTimeout(() => resolve(null), 4000)) // 4초 타임아웃
+      ]);
+      
+      if (aiResponse) {
+        await fetch(`https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            embeds: [{ ...embedData, description: embedData.description + `\n\n💬 ${aiResponse}` }],
+            components
+          })
+        });
+      }
+    } catch { /* 무시 */ }
+  })());
+}
+
 // 몬스터 레벨 생성 (플레이어 레벨 기준으로 랜덤 생성)
 function generateMonsterLevel(playerLevel) {
   // 플레이어 레벨의 -5 ~ +10 범위로 몬스터 레벨 생성
   const minLevel = Math.max(0, playerLevel - 5);
   const maxLevel = playerLevel + 10;
   return Math.floor(Math.random() * (maxLevel - minLevel + 1)) + minLevel;
+}
+
+// 전투력 계산 (강화 수치에 비례하여 더 정확하게)
+function calculatePower(level) {
+  // 기본 전투력 = level * 15 + 40 (강화 수치에 비례하지만 과도하지 않게)
+  const basePower = level * 15 + 40;
+  // 랜덤 변동 = ±20% (적당한 변동성 유지)
+  const variance = basePower * 0.2;
+  const minPower = Math.floor(basePower - variance);
+  const maxPower = Math.floor(basePower + variance);
+  return Math.floor(Math.random() * (maxPower - minPower + 1)) + minPower;
+}
+
+// 전투력 차이에 따른 무기 손상/파괴 처리 (최적화: user 정보를 파라미터로 받아 중복 쿼리 제거)
+async function handleWeaponDamage(userId, myPower, opponentPower, currentWeaponName, currentLevel, env) {
+  // 전투력 차이 계산 (상대가 얼마나 강한지)
+  const powerDiff = opponentPower - myPower;
+  
+  // 전투력 차이가 음수면 (내가 더 강함) 손상 없음
+  if (powerDiff <= 0) {
+    return { damaged: false, destroyed: false, message: '', updatedWeaponName: currentWeaponName, updatedLevel: currentLevel };
+  }
+  
+  // 내 전투력을 기준으로 차이 비율 계산 (더 정확함)
+  const powerDiffPercent = myPower > 0 ? (powerDiff / myPower) * 100 : 100;
+  
+  // 전투력 차이에 따른 확률 계산
+  let damageChance = 0;
+  let destroyChance = 0;
+  
+  if (powerDiffPercent <= 30) {
+    // 차이가 작음 (30% 이내): 손상 없음
+    return { damaged: false, destroyed: false, message: '', updatedWeaponName: currentWeaponName, updatedLevel: currentLevel };
+  } else if (powerDiffPercent <= 80) {
+    // 차이가 보통 (30-80%): 낮은 확률로 손상
+    damageChance = 0.2;
+    destroyChance = 0;
+  } else if (powerDiffPercent <= 150) {
+    // 차이가 큼 (80-150%): 중간 확률로 손상, 낮은 확률로 파괴
+    damageChance = 0.35;
+    destroyChance = 0.08;
+  } else {
+    // 차이가 매우 큼 (150% 이상): 높은 확률로 손상, 중간 확률로 파괴
+    damageChance = 0.55;
+    destroyChance = 0.2;
+  }
+  
+  // 무기 파괴 확인 (파괴가 우선)
+  if (Math.random() < destroyChance) {
+    // 기본 무기로 변경
+    const newWeapon = generateRandomWeapon();
+    await env.game_db.prepare("UPDATE users SET weapon_name = ?, level = 0 WHERE id = ?")
+      .bind(newWeapon.name, userId).run();
+    return { 
+      damaged: false, 
+      destroyed: true, 
+      message: `\n\n💥 **무기 파괴!**\n${newWeapon.name}으로 교체되었습니다.`,
+      updatedWeaponName: newWeapon.name,
+      updatedLevel: 0
+    };
+  }
+  
+  // 무기 손상 확인
+  if (Math.random() < damageChance) {
+    if (currentLevel > 0) {
+      const newLevel = currentLevel - 1;
+      await env.game_db.prepare("UPDATE users SET level = ? WHERE id = ?")
+        .bind(newLevel, userId).run();
+      return { 
+        damaged: true, 
+        destroyed: false, 
+        message: `\n\n⚙️ **무기 손상!**\n${currentWeaponName} +${currentLevel}강 → +${newLevel}강`,
+        updatedWeaponName: currentWeaponName,
+        updatedLevel: newLevel
+      };
+    }
+  }
+  
+  return { damaged: false, destroyed: false, message: '', updatedWeaponName: currentWeaponName, updatedLevel: currentLevel };
 }
 
 // 격차에 따른 골드 보상 계산
@@ -121,86 +332,57 @@ function calculateReward(playerLevel, monsterLevel) {
 
 export default {
   async fetch(request, env, ctx) {
-    // GET 요청 처리 (이미지 파일 서빙)
+    // GET 요청 처리 (이미지 파일 서빙 - R2 binding 사용)
     if (request.method === 'GET') {
-      const url = new URL(request.url);
-      const pathname = url.pathname;
+      const pathname = new URL(request.url).pathname;
       
-      // 이미지 파일 요청 처리
-      if (pathname.startsWith('/image/')) {
-        const filename = pathname.replace('/image/', '');
-        
-        // 모든 무기의 이미지 파일명 생성하여 확인
-        const allWeaponImageFilenames = WEAPONS.map(weapon => 
-          weaponNameToImageFilename(weapon.name)
-        ).filter(Boolean); // null 제거
-        
-        // 요청한 파일명이 무기 이미지 파일명 목록에 있는지 확인
-        if (allWeaponImageFilenames.includes(filename) && env.ASSETS) {
-          try {
-            // Static Assets는 루트 경로에서 파일을 찾으므로 파일명만 사용
-            const file = await env.ASSETS.fetch(new URL(`/${filename}`, request.url));
-            if (file && file.status === 200) {
-              return file;
-            }
-          } catch (e) {
-            console.error('Image fetch error:', e);
+      if (pathname.startsWith('/image/') && env.WEAPON_IMAGES) {
+        const filename = pathname.slice(7); // '/image/'.length
+        try {
+          const object = await env.WEAPON_IMAGES.get(filename);
+          if (object) {
+            const headers = new Headers();
+            object.writeHttpMetadata(headers);
+            headers.set('etag', object.httpEtag);
+            headers.set('cache-control', 'public, max-age=86400'); // 24시간 캐시
+            return new Response(object.body, { headers });
           }
-        }
+        } catch { /* 무시 */ }
       }
       
       return new Response('Not found', { status: 404 });
     }
     
-    // POST 요청만 처리 (Discord는 POST만 사용)
+    // POST 요청만 처리
     if (request.method !== 'POST') {
-      return new Response('Method not allowed', { 
-        status: 405,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      return new Response('Method not allowed', { status: 405 });
     }
 
     // 1. 디스코드 요청 서명 검증 (보안 필수)
     const signature = request.headers.get('x-signature-ed25519');
     const timestamp = request.headers.get('x-signature-timestamp');
     
-    // 서명 헤더가 없으면 401 반환
     if (!signature || !timestamp) {
-      console.error('Missing signature headers', { signature: !!signature, timestamp: !!timestamp });
-      return new Response('Missing signature headers', { 
-        status: 401,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      return new Response('Missing signature headers', { status: 401 });
     }
 
     const body = await request.text();
     
-    // 공개 키가 없으면 500 반환
     if (!env.DISCORD_PUBLIC_KEY) {
-      console.error('DISCORD_PUBLIC_KEY is not set');
-      return new Response('Server configuration error', { 
-        status: 500,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      return new Response('Server configuration error', { status: 500 });
     }
 
     const isValidRequest = await verifyKey(body, signature, timestamp, env.DISCORD_PUBLIC_KEY);
 
     if (!isValidRequest) {
-      return new Response('Bad request signature', { 
-        status: 401,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      return new Response('Bad request signature', { status: 401 });
     }
 
     let interaction;
     try {
       interaction = JSON.parse(body);
-    } catch (e) {
-      return new Response('Invalid JSON', { 
-        status: 400,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+    } catch {
+      return new Response('Invalid JSON', { status: 400 });
     }
 
     // 2. PING 처리 (디스코드가 봇 상태 확인용 - 엔드포인트 인증에 필수)
@@ -222,12 +404,11 @@ export default {
 
       // 묵념 버튼 처리
       if (customId && customId.startsWith('mourn_')) {
-        // 유저 데이터 가져오기 (없으면 생성)
-        let user = await env.game_db.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first();
+        // 유저 존재 여부만 확인 (money는 UPDATE에서 직접 증가)
+        const user = await env.game_db.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
         if (!user) {
           const newWeapon = generateRandomWeapon();
           await env.game_db.prepare("INSERT INTO users (id, username, weapon_name) VALUES (?, ?, ?)").bind(userId, username, newWeapon.name).run();
-          user = { id: userId, username: username, level: 0, money: 1000, wins: 0, last_daily: null, weapon_name: newWeapon.name };
         }
 
         const found = Math.floor(Math.random() * 100) + 10;
@@ -242,14 +423,216 @@ export default {
         });
       }
 
-      // 강화 버튼 처리 (다시 강화)
-      if (customId && customId.startsWith('enhance_')) {
-        // 유저 데이터 가져오기 (없으면 생성)
-        let user = await env.game_db.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first();
+      // 파산 확인/취소 버튼 처리
+      if (customId && customId.startsWith('bankruptcy_confirm_')) {
+        const buttonUserId = customId.replace('bankruptcy_confirm_', '');
+        // 버튼을 누른 사람만 처리 가능하도록 확인
+        if (buttonUserId !== userId) {
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: '❌ 본인만 파산 신청할 수 있습니다.', flags: 64 }
+          });
+        }
+        
+        // 유저 정보 초기화
+        const newWeapon = generateRandomWeapon();
+        await env.game_db.prepare("UPDATE users SET level = 0, money = 200000, wins = 0, weapon_name = ?, last_daily = NULL WHERE id = ?")
+          .bind(newWeapon.name, userId).run();
+        
+        return jsonResponse({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { 
+            content: `💸 **파산 처리 완료!**\n\n모든 정보가 초기화되었습니다.\n\n🎁 새 무기: ${newWeapon.name} +0강\n💰 초기 자금: 200,000원\n\n처음부터 다시 시작하세요!`,
+            flags: 64
+          }
+        });
+      }
+
+      if (customId && customId.startsWith('bankruptcy_cancel_')) {
+        const buttonUserId = customId.replace('bankruptcy_cancel_', '');
+        // 버튼을 누른 사람만 처리 가능하도록 확인
+        if (buttonUserId !== userId) {
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: '❌ 본인만 취소할 수 있습니다.', flags: 64 }
+          });
+        }
+        
+        return jsonResponse({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { 
+            content: '✅ 파산 신청이 취소되었습니다.',
+            flags: 64
+          }
+        });
+      }
+
+      // 배틀 버튼 처리 (다시 전투)
+      if (customId === 'battle_button') {
+        // 필요한 컬럼만 선택하여 최적화
+        let user = await env.game_db.prepare("SELECT level, money, weapon_name FROM users WHERE id = ?").bind(userId).first();
         if (!user) {
           const newWeapon = generateRandomWeapon();
           await env.game_db.prepare("INSERT INTO users (id, username, weapon_name) VALUES (?, ?, ?)").bind(userId, username, newWeapon.name).run();
-          user = { id: userId, username: username, level: 0, money: 1000, wins: 0, last_daily: null, weapon_name: newWeapon.name };
+          user = { level: 0, money: 200000, weapon_name: newWeapon.name };
+        }
+        
+        // 배틀 로직 실행 (기존 배틀 명령어와 동일)
+        const isVsUser = Math.random() < 0.5;
+        
+        if (isVsUser) {
+          // 다른 유저와 배틀
+          const opponent = await env.game_db.prepare("SELECT id, username, level, weapon_name FROM users WHERE id != ? ORDER BY RANDOM() LIMIT 1").bind(userId).first();
+          
+          if (!opponent) {
+            // 다른 유저가 없으면 몬스터와 배틀
+            const monsterLevel = generateMonsterLevel(user.level);
+            const monsterPower = Math.floor(Math.random() * (monsterLevel * 5 + 50));
+            const myPower = calculatePower(user.level);
+            
+            if (myPower > monsterPower) {
+              const reward = calculateReward(user.level, monsterLevel);
+              await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+              const levelDiff = monsterLevel - user.level;
+              const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { 
+                  content: `⚔️ **승리!**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!`,
+                  components: [{
+                    type: 1,
+                    components: [
+                      { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                      { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                    ]
+                  }]
+                }
+              });
+            } else {
+              const levelDiff = monsterLevel - user.level;
+              const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+              
+              // 무기 손상/파괴 처리
+              const weaponDamage = await handleWeaponDamage(userId, myPower, monsterPower, user.weapon_name, user.level, env);
+              
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { 
+                  content: `💀 **패배...**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                  components: [{
+                    type: 1,
+                    components: [
+                      { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                      { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                    ]
+                  }]
+                }
+              });
+            }
+          }
+          
+          // opponent는 이미 랜덤으로 선택됨
+          const opponentPower = calculatePower(opponent.level || 0);
+          const myPower = calculatePower(user.level);
+          
+          if (myPower > opponentPower) {
+            const reward = 2000;
+            await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+            
+            // 승리 시 상대방 무기 손상/파괴 처리 (전투력 차이에 따라)
+            const opponentWeaponDamage = await handleWeaponDamage(opponent.id, opponentPower, myPower, opponent.weapon_name || '나무 검', opponent.level || 0, env);
+            
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💰 2,000원을 획득했습니다!${opponentWeaponDamage.message ? `\n\n🎯 **상대방 피해:**${opponentWeaponDamage.message.replace('\n\n', '\n')}` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          } else {
+            const penalty = 500;
+            const finalMoney = Math.max(0, user.money - penalty);
+            await env.game_db.prepare("UPDATE users SET money = ? WHERE id = ?").bind(finalMoney, userId).run();
+            
+            // 무기 손상/파괴 처리
+            const weaponDamage = await handleWeaponDamage(userId, myPower, opponentPower, user.weapon_name, user.level, env);
+            
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💸 ${penalty}원을 잃었습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          }
+        } else {
+          // 몬스터와 배틀
+          const monsterLevel = generateMonsterLevel(user.level);
+          const monsterPower = Math.floor(Math.random() * (monsterLevel * 5 + 50));
+          const myPower = calculatePower(user.level);
+          
+          if (myPower > monsterPower) {
+            const reward = calculateReward(user.level, monsterLevel);
+            await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+            const levelDiff = monsterLevel - user.level;
+            const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          } else {
+            const levelDiff = monsterLevel - user.level;
+            const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+            
+            // 무기 손상/파괴 처리 (최적화: user 정보 전달하여 중복 쿼리 제거)
+            const weaponDamage = await handleWeaponDamage(userId, myPower, monsterPower, user.weapon_name, user.level, env);
+            
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          }
+        }
+      }
+
+      // 강화 버튼 처리 (다시 강화)
+      if (customId && customId.startsWith('enhance_')) {
+        // 필요한 컬럼만 선택하여 최적화
+        let user = await env.game_db.prepare("SELECT level, money, weapon_name FROM users WHERE id = ?").bind(userId).first();
+        if (!user) {
+          const newWeapon = generateRandomWeapon();
+          await env.game_db.prepare("INSERT INTO users (id, username, weapon_name) VALUES (?, ?, ?)").bind(userId, username, newWeapon.name).run();
+          user = { level: 0, money: 200000, weapon_name: newWeapon.name };
         }
         // 무기 이름이 없으면 랜덤 생성
         if (!user.weapon_name) {
@@ -266,38 +649,46 @@ export default {
           });
         }
         
+        // 중복 요청 방지: 원래 값 저장
+        const originalMoney = user.money;
+        const originalLevel = user.level;
+        const originalWeapon = user.weapon_name;
+        
         const successRate = Math.max(10, 100 - (user.level * 5));
         const destroyRate = Math.min(30, user.level * 2);
+        const failRate = 100 - successRate - destroyRate;
         const random = Math.random() * 100;
         const isSuccess = random < successRate;
         const isDestroyed = !isSuccess && random < (successRate + destroyRate);
         const remainingMoney = user.money - cost;
 
-        // 무기 이미지 URL 생성 헬퍼 함수
-        const getWeaponImageUrl = (weaponName) => {
-          const weaponImageFilename = getWeaponImageFilename(weaponName);
-          if (weaponImageFilename) {
-            const baseUrl = new URL(request.url);
-            return `${baseUrl.origin}/image/${weaponImageFilename}`;
-          }
-          return null;
-        };
+        // R2 Public URL 가져오기 (환경 변수 또는 기본값)
+        const r2PublicUrl = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
 
         if (isSuccess) {
-          await env.game_db.prepare("UPDATE users SET level = level + 1, money = money - ? WHERE id = ?").bind(cost, userId).run();
+          // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+          const result = await env.game_db.prepare("UPDATE users SET level = level + 1, money = money - ? WHERE id = ? AND money = ? AND level = ?").bind(cost, userId, originalMoney, originalLevel).run();
+          if (result.meta.changes === 0) {
+            // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+            });
+          }
           
+          // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
           const embedData = {
             title: `✨ ${username}님의 강화 성공!`,
-            description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원`,
+            description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
             color: 0x00ff00
           };
           
-          const imageUrl = getWeaponImageUrl(user.weapon_name);
+          const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
           if (imageUrl) {
             embedData.image = { url: imageUrl };
           }
           
-          return jsonResponse({
+          const response = jsonResponse({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: { 
               embeds: [embedData],
@@ -312,23 +703,41 @@ export default {
               }]
             }
           });
+          
+          // AI 응답을 백그라운드에서 처리
+          processAIResponseInBackground(
+            ctx, env, 'success', user.weapon_name, user.level + 1, username,
+            embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+            [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
+          );
+          
+          return response;
         } else if (isDestroyed) {
           const newWeapon = generateRandomWeapon();
           const newWeaponDesc = getWeaponDescription(newWeapon.name);
-          await env.game_db.prepare("UPDATE users SET level = 0, money = money - ?, weapon_name = ? WHERE id = ?").bind(cost, newWeapon.name, userId).run();
+          // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+          const result = await env.game_db.prepare("UPDATE users SET level = 0, money = money - ?, weapon_name = ? WHERE id = ? AND money = ? AND level = ? AND weapon_name = ?").bind(cost, newWeapon.name, userId, originalMoney, originalLevel, originalWeapon).run();
+          if (result.meta.changes === 0) {
+            // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+            });
+          }
           
+          // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
           const embedData = {
             title: `💥 ${username}님의 무기 파괴!`,
-            description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}`,
+            description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
             color: 0xff0000
           };
           
-          const imageUrl = getWeaponImageUrl(user.weapon_name);
+          const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
           if (imageUrl) {
             embedData.image = { url: imageUrl };
           }
           
-          return jsonResponse({
+          const response = jsonResponse({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: { 
               embeds: [embedData],
@@ -351,21 +760,42 @@ export default {
               }]
             }
           });
-        } else {
-          await env.game_db.prepare("UPDATE users SET money = money - ? WHERE id = ?").bind(cost, userId).run();
           
+          // AI 응답을 백그라운드에서 처리
+          processAIResponseInBackground(
+            ctx, env, 'destroyed', user.weapon_name, user.level, username,
+            embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+            [{ type: 1, components: [
+              { type: 2, style: 2, label: '🙏 묵념', custom_id: `mourn_${userId}` },
+              { type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }
+            ]}]
+          );
+          
+          return response;
+        } else {
+          // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+          const result = await env.game_db.prepare("UPDATE users SET money = money - ? WHERE id = ? AND money = ? AND level = ?").bind(cost, userId, originalMoney, originalLevel).run();
+          if (result.meta.changes === 0) {
+            // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+            });
+          }
+          
+          // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
           const embedData = {
             title: `❌ ${username}님의 강화 실패...`,
-            description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n⚠️ 터질 확률: ${destroyRate}%`,
+            description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
             color: 0xffaa00
           };
           
-          const imageUrl = getWeaponImageUrl(user.weapon_name);
+          const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
           if (imageUrl) {
             embedData.image = { url: imageUrl };
           }
           
-          return jsonResponse({
+          const response = jsonResponse({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: { 
               embeds: [embedData],
@@ -380,6 +810,15 @@ export default {
               }]
             }
           });
+          
+          // AI 응답을 백그라운드에서 처리
+          processAIResponseInBackground(
+            ctx, env, 'failure', user.weapon_name, user.level, username,
+            embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+            [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
+          );
+          
+          return response;
         }
       }
     }
@@ -390,12 +829,12 @@ export default {
       const userId = interaction.member.user.id;
       const username = interaction.member.user.username;
 
-      // 유저 데이터 가져오기 (없으면 생성)
-      let user = await env.game_db.prepare("SELECT * FROM users WHERE id = ?").bind(userId).first();
+      // 유저 데이터 가져오기 (없으면 생성) - 필요한 컬럼만 선택하여 최적화
+      let user = await env.game_db.prepare("SELECT level, money, wins, last_daily, weapon_name FROM users WHERE id = ?").bind(userId).first();
       if (!user) {
         const newWeapon = generateRandomWeapon();
         await env.game_db.prepare("INSERT INTO users (id, username, weapon_name) VALUES (?, ?, ?)").bind(userId, username, newWeapon.name).run();
-        user = { id: userId, username: username, level: 0, money: 1000, wins: 0, last_daily: null, weapon_name: newWeapon.name };
+        user = { level: 0, money: 200000, wins: 0, last_daily: null, weapon_name: newWeapon.name };
       }
       // 무기 이름이 없으면 랜덤 생성
       if (!user.weapon_name) {
@@ -419,11 +858,10 @@ export default {
           color: 0x00ff00 // 초록색
         };
         
-        // 무기 이미지가 있으면 추가
-        if (weaponImageFilename) {
-          // Worker의 실제 URL 생성 (request.url의 origin 사용)
-          const baseUrl = new URL(request.url);
-          const imageUrl = `${baseUrl.origin}/image/${weaponImageFilename}`;
+        // R2 Public URL 가져오기 (환경 변수 또는 기본값)
+        const r2PublicUrl = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
+        const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
+        if (imageUrl) {
           embedData.image = { url: imageUrl };
         }
         
@@ -461,122 +899,179 @@ export default {
           });
         }
         
+        // 중복 요청 방지: 원래 값 저장
+        const originalMoney = user.money;
+        const originalLevel = user.level;
+        const originalWeapon = user.weapon_name;
+        
         const successRate = Math.max(10, 100 - (user.level * 5));
         const destroyRate = Math.min(30, user.level * 2); // 터질 확률 (최대 30%)
+        const failRate = 100 - successRate - destroyRate;
         const random = Math.random() * 100;
         const isSuccess = random < successRate;
         const isDestroyed = !isSuccess && random < (successRate + destroyRate);
         const remainingMoney = user.money - cost;
 
-        // 무기 이미지 URL 생성 헬퍼 함수
-        const getWeaponImageUrl = (weaponName) => {
-          const weaponImageFilename = getWeaponImageFilename(weaponName);
-          if (weaponImageFilename) {
-            const baseUrl = new URL(request.url);
-            return `${baseUrl.origin}/image/${weaponImageFilename}`;
-          }
-          return null;
-        };
+        // R2 Public URL 가져오기 (환경 변수 또는 기본값)
+        const r2PublicUrl = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
 
         if (isSuccess) {
-            await env.game_db.prepare("UPDATE users SET level = level + 1, money = money - ? WHERE id = ?").bind(cost, userId).run();
-            
-            const embedData = {
-              title: `✨ ${username}님의 강화 성공!`,
-              description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원`,
-              color: 0x00ff00 // 초록색
-            };
-            
-            const imageUrl = getWeaponImageUrl(user.weapon_name);
-            if (imageUrl) {
-              embedData.image = { url: imageUrl };
+            // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+            const result = await env.game_db.prepare("UPDATE users SET level = level + 1, money = money - ? WHERE id = ? AND money = ? AND level = ?").bind(cost, userId, originalMoney, originalLevel).run();
+            if (result.meta.changes === 0) {
+              // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+              });
             }
             
-            return jsonResponse({
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: { 
-                  embeds: [embedData],
-                  components: [{
-                    type: 1, // Action Row
-                    components: [{
-                      type: 2, // Button
-                      style: 3, // Success (초록색)
-                      label: '✨ 다시 강화',
-                      custom_id: 'enhance_button'
-                    }]
-                  }]
-                }
-            });
+          // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
+          const embedData = {
+            title: `✨ ${username}님의 강화 성공!`,
+            description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
+            color: 0x00ff00 // 초록색
+          };
+          
+          const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
+          if (imageUrl) {
+            embedData.image = { url: imageUrl };
+          }
+          
+          const response = jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { 
+              embeds: [embedData],
+              components: [{
+                type: 1, // Action Row
+                components: [{
+                  type: 2, // Button
+                  style: 3, // Success (초록색)
+                  label: '✨ 다시 강화',
+                  custom_id: 'enhance_button'
+                }]
+              }]
+            }
+          });
+          
+          // AI 응답을 백그라운드에서 처리
+          processAIResponseInBackground(
+            ctx, env, 'success', user.weapon_name, user.level + 1, username,
+            embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+            [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
+          );
+          
+          return response;
         } else if (isDestroyed) {
             // 무기 터짐 - 새 무기 생성
             const newWeapon = generateRandomWeapon();
             const newWeaponDesc = getWeaponDescription(newWeapon.name);
-            await env.game_db.prepare("UPDATE users SET level = 0, money = money - ?, weapon_name = ? WHERE id = ?").bind(cost, newWeapon.name, userId).run();
+            // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+            const result = await env.game_db.prepare("UPDATE users SET level = 0, money = money - ?, weapon_name = ? WHERE id = ? AND money = ? AND level = ? AND weapon_name = ?").bind(cost, newWeapon.name, userId, originalMoney, originalLevel, originalWeapon).run();
+            if (result.meta.changes === 0) {
+              // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+              });
+            }
             
+            // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
             const embedData = {
               title: `💥 ${username}님의 무기 파괴!`,
-              description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}`,
+              description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
               color: 0xff0000 // 빨간색
             };
             
             // 파괴된 무기 이미지 표시
-            const imageUrl = getWeaponImageUrl(user.weapon_name);
+            const r2PublicUrlDestroyed = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
+            const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrlDestroyed, request.url);
             if (imageUrl) {
               embedData.image = { url: imageUrl };
             }
             
-            return jsonResponse({
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: { 
-                    embeds: [embedData],
-                    components: [{
-                        type: 1, // Action Row
-                        components: [
-                            {
-                                type: 2, // Button
-                                style: 2, // Secondary (회색)
-                                label: '🙏 묵념',
-                                custom_id: `mourn_${userId}`
-                            },
-                            {
-                                type: 2, // Button
-                                style: 3, // Success (초록색)
-                                label: '✨ 다시 강화',
-                                custom_id: 'enhance_button'
-                            }
-                        ]
-                    }]
-                }
-            });
-        } else {
-            await env.game_db.prepare("UPDATE users SET money = money - ? WHERE id = ?").bind(cost, userId).run();
-            
-            const embedData = {
-              title: `❌ ${username}님의 강화 실패...`,
-              description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n⚠️ 터질 확률: ${destroyRate}%`,
-              color: 0xffaa00 // 주황색
-            };
-            
-            const imageUrl = getWeaponImageUrl(user.weapon_name);
-            if (imageUrl) {
-              embedData.image = { url: imageUrl };
-            }
-            
-            return jsonResponse({
-                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: { 
-                  embeds: [embedData],
-                  components: [{
-                    type: 1, // Action Row
-                    components: [{
+            const response = jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                embeds: [embedData],
+                components: [{
+                  type: 1, // Action Row
+                  components: [
+                    {
+                      type: 2, // Button
+                      style: 2, // Secondary (회색)
+                      label: '🙏 묵념',
+                      custom_id: `mourn_${userId}`
+                    },
+                    {
                       type: 2, // Button
                       style: 3, // Success (초록색)
                       label: '✨ 다시 강화',
                       custom_id: 'enhance_button'
-                    }]
-                  }]
-                }
+                    }
+                  ]
+                }]
+              }
             });
+            
+            // AI 응답을 백그라운드에서 처리
+            processAIResponseInBackground(
+              ctx, env, 'destroyed', user.weapon_name, user.level, username,
+              embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+              [{ type: 1, components: [
+                { type: 2, style: 2, label: '🙏 묵념', custom_id: `mourn_${userId}` },
+                { type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }
+              ]}]
+            );
+            
+            return response;
+        } else {
+            // WHERE 조건에 원래 값 확인 추가로 중복 요청 방지
+            const result = await env.game_db.prepare("UPDATE users SET money = money - ? WHERE id = ? AND money = ? AND level = ?").bind(cost, userId, originalMoney, originalLevel).run();
+            if (result.meta.changes === 0) {
+              // 데이터가 변경되어 업데이트 실패 (다른 요청이 이미 처리함)
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { content: '⏳ 강화 처리 중입니다. 잠시 후 다시 시도해주세요.', flags: 64 }
+              });
+            }
+            
+            // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
+            const embedData = {
+              title: `❌ ${username}님의 강화 실패...`,
+              description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
+              color: 0xffaa00 // 주황색
+            };
+            
+            const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
+            if (imageUrl) {
+              embedData.image = { url: imageUrl };
+            }
+            
+            const response = jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                embeds: [embedData],
+                components: [{
+                  type: 1, // Action Row
+                  components: [{
+                    type: 2, // Button
+                    style: 3, // Success (초록색)
+                    label: '✨ 다시 강화',
+                    custom_id: 'enhance_button'
+                  }]
+                }]
+              }
+            });
+            
+            // AI 응답을 백그라운드에서 처리
+            processAIResponseInBackground(
+              ctx, env, 'failure', user.weapon_name, user.level, username,
+              embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
+              [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
+            );
+          
+          return response;
         }
       }
 
@@ -587,13 +1082,15 @@ export default {
         
         if (isVsUser) {
           // 다른 유저와 배틀
-          const { results: allUsers } = await env.game_db.prepare("SELECT * FROM users WHERE id != ?").bind(userId).all();
+          // 필요한 컬럼만 선택하고 랜덤으로 하나만 가져와서 최적화
+          // SQLite는 RANDOM()을 지원하므로 ORDER BY RANDOM() LIMIT 1 사용
+          const opponent = await env.game_db.prepare("SELECT id, username, level, weapon_name FROM users WHERE id != ? ORDER BY RANDOM() LIMIT 1").bind(userId).first();
           
-          if (allUsers.length === 0) {
+          if (!opponent) {
             // 다른 유저가 없으면 몬스터와 배틀
             const monsterLevel = generateMonsterLevel(user.level);
             const monsterPower = Math.floor(Math.random() * (monsterLevel * 5 + 50));
-            const myPower = Math.floor(Math.random() * (user.level * 10 + 30));
+            const myPower = calculatePower(user.level);
             
             if (myPower > monsterPower) {
               const reward = calculateReward(user.level, monsterLevel);
@@ -602,40 +1099,83 @@ export default {
               const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
               return jsonResponse({
                 type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: { content: `⚔️ **승리!**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!` }
+                data: { 
+                  content: `⚔️ **승리!**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!`,
+                  components: [{
+                    type: 1,
+                    components: [
+                      { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                      { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                    ]
+                  }]
+                }
               });
             } else {
               const levelDiff = monsterLevel - user.level;
               const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+              
+              // 무기 손상/파괴 처리
+              const weaponDamage = await handleWeaponDamage(userId, myPower, monsterPower, user.weapon_name, user.level, env);
+              
               return jsonResponse({
                 type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                data: { content: `💀 **패배...**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.` }
+                data: { 
+                  content: `💀 **패배...**\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                  components: [{
+                    type: 1,
+                    components: [
+                      { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                      { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                    ]
+                  }]
+                }
               });
             }
           }
           
-          // 랜덤 유저 선택
-          const opponent = allUsers[Math.floor(Math.random() * allUsers.length)];
-          const opponentPower = Math.floor(Math.random() * ((opponent.level || 0) * 10 + 30));
-          const myPower = Math.floor(Math.random() * (user.level * 10 + 30));
+          // opponent는 이미 랜덤으로 선택됨
+          const opponentPower = calculatePower(opponent.level || 0);
+          const myPower = calculatePower(user.level);
           
           if (myPower > opponentPower) {
             const reward = 2000; // 유저와 배틀 승리 시 더 많은 보상
             await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+            
+            // 승리 시 상대방 무기 손상/파괴 처리 (전투력 차이에 따라)
+            const opponentWeaponDamage = await handleWeaponDamage(opponent.id, opponentPower, myPower, opponent.weapon_name || '나무 검', opponent.level || 0, env);
+            
             return jsonResponse({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: { 
-                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💰 2,000원을 획득했습니다!` 
+                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💰 2,000원을 획득했습니다!${opponentWeaponDamage.message ? `\n\n🎯 **상대방 피해:**${opponentWeaponDamage.message.replace('\n\n', '\n')}` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
               }
             });
           } else {
             const penalty = 500; // 패배 시 패널티
             const finalMoney = Math.max(0, user.money - penalty);
             await env.game_db.prepare("UPDATE users SET money = ? WHERE id = ?").bind(finalMoney, userId).run();
+            
+            // 무기 손상/파괴 처리 (최적화: user 정보 전달하여 중복 쿼리 제거)
+            const weaponDamage = await handleWeaponDamage(userId, myPower, opponentPower, user.weapon_name, user.level, env);
+            
             return jsonResponse({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
               data: { 
-                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💸 ${penalty}원을 잃었습니다.` 
+                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${opponent.username}** (${opponent.weapon_name || '무기 없음'} +${opponent.level || 0}강): ${opponentPower} 전투력\n\n💸 ${penalty}원을 잃었습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
               }
             });
           }
@@ -643,7 +1183,7 @@ export default {
           // 몬스터와 배틀
           const monsterLevel = generateMonsterLevel(user.level);
           const monsterPower = Math.floor(Math.random() * (monsterLevel * 5 + 50));
-          const myPower = Math.floor(Math.random() * (user.level * 10 + 30));
+          const myPower = calculatePower(user.level);
           
           if (myPower > monsterPower) {
             const reward = calculateReward(user.level, monsterLevel);
@@ -652,14 +1192,36 @@ export default {
             const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
             return jsonResponse({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: { content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!` }
+              data: { 
+                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n💰 ${reward.toLocaleString()}원을 획득했습니다!`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
             });
           } else {
             const levelDiff = monsterLevel - user.level;
             const diffText = levelDiff > 0 ? `(+${levelDiff}강)` : levelDiff < 0 ? `(${levelDiff}강)` : '(동일)';
+            
+            // 무기 손상/파괴 처리 (최적화: user 정보 전달하여 중복 쿼리 제거)
+            const weaponDamage = await handleWeaponDamage(userId, myPower, monsterPower, user.weapon_name, user.level, env);
+            
             return jsonResponse({
               type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: { content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.` }
+              data: { 
+                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**몬스터** (레벨 ${monsterLevel} ${diffText}): ${monsterPower} 전투력\n\n도망쳤습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: 'battle_button' },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
             });
           }
         }
@@ -694,6 +1256,34 @@ export default {
         return jsonResponse({
             type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
             data: { content: `🏆 **서버 랭킹 TOP 5**\n\n${rankText}` }
+        });
+      }
+
+      // [파산]
+      if (name === '파산') {
+        return jsonResponse({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            content: `⚠️ **파산 신청 확인**\n\n정말로 파산하시겠습니까?\n\n파산 시 다음 정보가 모두 초기화됩니다:\n- 💰 자금: 200,000원으로 초기화\n- ⚔️ 무기: 랜덤 무기로 변경 (+0강)\n- 📊 강화 레벨: 0으로 초기화\n- 🏆 승리 횟수: 0으로 초기화\n- 📅 출석 정보: 초기화\n\n**이 작업은 되돌릴 수 없습니다!**`,
+            flags: 64, // 나만 보이기
+            components: [{
+              type: 1, // Action Row
+              components: [
+                {
+                  type: 2, // Button
+                  style: 4, // Danger (빨간색)
+                  label: '✅ 예, 파산합니다',
+                  custom_id: `bankruptcy_confirm_${userId}`
+                },
+                {
+                  type: 2, // Button
+                  style: 2, // Secondary (회색)
+                  label: '❌ 아니오, 취소합니다',
+                  custom_id: `bankruptcy_cancel_${userId}`
+                }
+              ]
+            }]
+          }
         });
       }
     }

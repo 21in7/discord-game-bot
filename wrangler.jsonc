@@ -36,10 +36,20 @@
 	 */
 	// "vars": {  "MY_VARIABLE": "production_value" }
 	/**
-	 * Static Assets
+	 * R2 Buckets
+	 * https://developers.cloudflare.com/r2/
+	 */
+	"r2_buckets": [
+		{
+			"binding": "WEAPON_IMAGES",
+			"bucket_name": "weapon-images"
+		}
+	],
+	/**
+	 * Static Assets (R2로 전환하여 주석 처리)
 	 * https://developers.cloudflare.com/workers/static-assets/binding/
 	 */
-	"assets": {  "directory": "./image/",  "binding": "ASSETS" },
+	// "assets": {  "directory": "./image/",  "binding": "ASSETS" },
 	/**
 	 * Service Bindings (communicate between multiple Workers)
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
