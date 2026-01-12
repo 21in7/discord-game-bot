@@ -149,65 +149,48 @@ function getWeaponImageUrl(weaponName, r2PublicUrl, requestUrl = null) {
   return null;
 }
 
-// AI API 호출 함수 (Google Gemini Flash) - 최적화 버전
+// 템플릿 기반 AI 응답 생성 (Gemini API 호출 없음)
 async function generateAIResponse(resultType, weaponName, level, username, env) {
-  const GEMINI_API_KEY = env.GEMINI_API_KEY;
-  if (!GEMINI_API_KEY) return null;
-  
-  const resultText = resultType === 'success' ? `강화 성공! +${level}강` 
-    : resultType === 'failure' ? `강화 실패! +${level}강 유지` 
-    : `무기 파괴! +${level}강에서 터짐`;
-  
-  const prompt = `너는 게임 대장장이. 2줄 이내 반말로 반응.
-손님: ${username}, 무기: ${weaponName}, 결과: ${resultText}
-'${username}'과 '${weaponName}'을 반드시 포함해서 말해.`;
-  
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 80, temperature: 0.8 }
-        })
-      }
-    );
+    // 데이터베이스에서 랜덤 템플릿 가져오기
+    const { results } = await env.game_db.prepare(
+      "SELECT response FROM ai_responses WHERE result_type = ? ORDER BY RANDOM() LIMIT 1"
+    ).bind(resultType).all();
     
-    if (!response.ok) return null;
-    
-    const data = await response.json();
-    const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    
-    if (aiResponse) {
-      // 비동기 저장 (에러 무시)
-      env.game_db.prepare("INSERT INTO ai_responses (result_type, response) VALUES (?, ?)")
-        .bind(resultType, aiResponse).run().catch(() => {});
+    if (!results || results.length === 0) {
+      // 템플릿이 없으면 기본 메시지 반환
+      return null;
     }
     
-    return aiResponse || null;
+    // 템플릿에서 플레이스홀더 치환
+    let template = results[0].response;
+    
+    // {username} 플레이스홀더 치환
+    template = template.replace(/\{username\}/g, username);
+    
+    // {weaponName} 플레이스홀더 치환
+    template = template.replace(/\{weaponName\}/g, weaponName);
+    
+    // {level} 플레이스홀더 치환 (있는 경우)
+    template = template.replace(/\{level\}/g, level.toString());
+    
+    return template.trim();
   } catch {
     return null;
   }
 }
 
-// 저장된 AI 응답 가져오기 (사용 안 함 - 최적화를 위해 비활성화)
-// async function getRandomAIResponse(resultType, env) { ... }
-
-// AI 응답 생성 (바로 generateAIResponse 호출)
+// AI 응답 생성 (템플릿 기반)
 const getAIResponse = generateAIResponse;
 
-// 백그라운드 AI 응답 처리 (공통 함수 - 최적화)
-function processAIResponseInBackground(ctx, env, resultType, weaponName, level, username, embedData, interactionToken, applicationId, components) {
+// 백그라운드 AI 응답 처리 (템플릿 기반 - 빠르고 API 호출 없음)
+async function processAIResponseInBackground(ctx, env, userId, resultType, weaponName, level, username, embedData, interactionToken, applicationId, components) {
   if (!interactionToken || !applicationId) return;
   
+  // 템플릿 기반이므로 쿨다운/확률 제한 없이 바로 처리 (매우 빠름)
   ctx.waitUntil((async () => {
     try {
-      const aiResponse = await Promise.race([
-        generateAIResponse(resultType, weaponName, level, username, env),
-        new Promise(resolve => setTimeout(() => resolve(null), 4000)) // 4초 타임아웃
-      ]);
+      const aiResponse = await generateAIResponse(resultType, weaponName, level, username, env);
       
       if (aiResponse) {
         await fetch(`https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`, {
@@ -706,7 +689,7 @@ export default {
           
           // AI 응답을 백그라운드에서 처리
           processAIResponseInBackground(
-            ctx, env, 'success', user.weapon_name, user.level + 1, username,
+            ctx, env, userId, 'success', user.weapon_name, user.level + 1, username,
             embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
             [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
           );
@@ -763,7 +746,7 @@ export default {
           
           // AI 응답을 백그라운드에서 처리
           processAIResponseInBackground(
-            ctx, env, 'destroyed', user.weapon_name, user.level, username,
+            ctx, env, userId, 'destroyed', user.weapon_name, user.level, username,
             embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
             [{ type: 1, components: [
               { type: 2, style: 2, label: '🙏 묵념', custom_id: `mourn_${userId}` },
@@ -813,7 +796,7 @@ export default {
           
           // AI 응답을 백그라운드에서 처리
           processAIResponseInBackground(
-            ctx, env, 'failure', user.weapon_name, user.level, username,
+            ctx, env, userId, 'failure', user.weapon_name, user.level, username,
             embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
             [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
           );
@@ -956,7 +939,7 @@ export default {
           
           // AI 응답을 백그라운드에서 처리
           processAIResponseInBackground(
-            ctx, env, 'success', user.weapon_name, user.level + 1, username,
+            ctx, env, userId, 'success', user.weapon_name, user.level + 1, username,
             embedData, interaction.token, interaction.application_id || env.DISCORD_APPLICATION_ID,
             [{ type: 1, components: [{ type: 2, style: 3, label: '✨ 다시 강화', custom_id: 'enhance_button' }] }]
           );
