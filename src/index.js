@@ -608,6 +608,71 @@ export default {
         }
       }
 
+      // 특정 유저와 다시 배틀 버튼 처리
+      if (customId && customId.startsWith('battle_user_')) {
+        const targetUserId = customId.replace('battle_user_', '');
+        
+        let user = await env.game_db.prepare("SELECT level, money, weapon_name FROM users WHERE id = ?").bind(userId).first();
+        if (!user) {
+          const newWeapon = generateRandomWeapon();
+          await env.game_db.prepare("INSERT INTO users (id, username, weapon_name) VALUES (?, ?, ?)").bind(userId, username, newWeapon.name).run();
+          user = { level: 0, money: 200000, weapon_name: newWeapon.name };
+        }
+        
+        const targetUser = await env.game_db.prepare("SELECT id, username, level, weapon_name FROM users WHERE id = ?").bind(targetUserId).first();
+        
+        if (!targetUser) {
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { content: '❌ 상대방이 게임에서 탈퇴했습니다.', flags: 64 }
+          });
+        }
+        
+        const opponentPower = calculatePower(targetUser.level || 0);
+        const myPower = calculatePower(user.level);
+        
+        if (myPower > opponentPower) {
+          const reward = 2000;
+          await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+          
+          const opponentWeaponDamage = await handleWeaponDamage(targetUser.id, opponentPower, myPower, targetUser.weapon_name || '나무 검', targetUser.level || 0, env);
+          
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { 
+              content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${targetUser.username}** (${targetUser.weapon_name || '무기 없음'} +${targetUser.level || 0}강): ${opponentPower} 전투력\n\n💰 2,000원을 획득했습니다!${opponentWeaponDamage.message ? `\n\n🎯 **상대방 피해:**${opponentWeaponDamage.message.replace('\n\n', '\n')}` : ''}`,
+              components: [{
+                type: 1,
+                components: [
+                  { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: `battle_user_${targetUserId}` },
+                  { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                ]
+              }]
+            }
+          });
+        } else {
+          const penalty = 500;
+          const finalMoney = Math.max(0, user.money - penalty);
+          await env.game_db.prepare("UPDATE users SET money = ? WHERE id = ?").bind(finalMoney, userId).run();
+          
+          const weaponDamage = await handleWeaponDamage(userId, myPower, opponentPower, user.weapon_name, user.level, env);
+          
+          return jsonResponse({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: { 
+              content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${targetUser.username}** (${targetUser.weapon_name || '무기 없음'} +${targetUser.level || 0}강): ${opponentPower} 전투력\n\n💸 ${penalty}원을 잃었습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+              components: [{
+                type: 1,
+                components: [
+                  { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: `battle_user_${targetUserId}` },
+                  { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                ]
+              }]
+            }
+          });
+        }
+      }
+
       // 강화 버튼 처리 (다시 강화)
       if (customId && customId.startsWith('enhance_')) {
         // 필요한 컬럼만 선택하여 최적화
@@ -1060,13 +1125,82 @@ export default {
 
       // [배틀]
       if (name === '배틀') {
-        // 랜덤하게 몬스터 또는 유저와 배틀 (50% 확률)
+        // 옵션에서 상대방 지정 확인
+        const targetOption = interaction.data.options?.find(opt => opt.name === '상대');
+        const targetUserId = targetOption?.value;
+        
+        // 특정 유저 지정 시 해당 유저와 배틀
+        if (targetUserId) {
+          // 자기 자신과는 배틀 불가
+          if (targetUserId === userId) {
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content: '❌ 자기 자신과는 배틀할 수 없습니다!', flags: 64 }
+            });
+          }
+          
+          const targetUser = await env.game_db.prepare("SELECT id, username, level, weapon_name FROM users WHERE id = ?").bind(targetUserId).first();
+          
+          if (!targetUser) {
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { content: '❌ 해당 유저가 게임에 등록되어 있지 않습니다!\n`/정보` 명령어로 먼저 등록해주세요.', flags: 64 }
+            });
+          }
+          
+          // 지정된 유저와 배틀
+          const opponentPower = calculatePower(targetUser.level || 0);
+          const myPower = calculatePower(user.level);
+          
+          if (myPower > opponentPower) {
+            const reward = 2000;
+            await env.game_db.prepare("UPDATE users SET money = money + ?, wins = wins + 1 WHERE id = ?").bind(reward, userId).run();
+            
+            // 승리 시 상대방 무기 손상/파괴 처리
+            const opponentWeaponDamage = await handleWeaponDamage(targetUser.id, opponentPower, myPower, targetUser.weapon_name || '나무 검', targetUser.level || 0, env);
+            
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `⚔️ **${username}님의 승리!**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${targetUser.username}** (${targetUser.weapon_name || '무기 없음'} +${targetUser.level || 0}강): ${opponentPower} 전투력\n\n💰 2,000원을 획득했습니다!${opponentWeaponDamage.message ? `\n\n🎯 **상대방 피해:**${opponentWeaponDamage.message.replace('\n\n', '\n')}` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: `battle_user_${targetUserId}` },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          } else {
+            const penalty = 500;
+            const finalMoney = Math.max(0, user.money - penalty);
+            await env.game_db.prepare("UPDATE users SET money = ? WHERE id = ?").bind(finalMoney, userId).run();
+            
+            // 무기 손상/파괴 처리
+            const weaponDamage = await handleWeaponDamage(userId, myPower, opponentPower, user.weapon_name, user.level, env);
+            
+            return jsonResponse({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: { 
+                content: `💀 **${username}님의 패배...**\n\n**${username}** (${user.weapon_name} +${user.level}강): ${myPower} 전투력\n**${targetUser.username}** (${targetUser.weapon_name || '무기 없음'} +${targetUser.level || 0}강): ${opponentPower} 전투력\n\n💸 ${penalty}원을 잃었습니다.${weaponDamage.message}${weaponDamage.destroyed || weaponDamage.damaged ? `\n\n현재 무기: ${weaponDamage.updatedWeaponName} +${weaponDamage.updatedLevel}강` : ''}`,
+                components: [{
+                  type: 1,
+                  components: [
+                    { type: 2, style: 3, label: '⚔️ 다시 전투', custom_id: `battle_user_${targetUserId}` },
+                    { type: 2, style: 1, label: '✨ 강화', custom_id: 'enhance_button' }
+                  ]
+                }]
+              }
+            });
+          }
+        }
+        
+        // 상대 미지정 시 랜덤하게 몬스터 또는 유저와 배틀 (50% 확률)
         const isVsUser = Math.random() < 0.5;
         
         if (isVsUser) {
-          // 다른 유저와 배틀
-          // 필요한 컬럼만 선택하고 랜덤으로 하나만 가져와서 최적화
-          // SQLite는 RANDOM()을 지원하므로 ORDER BY RANDOM() LIMIT 1 사용
+          // 다른 유저와 배틀 (랜덤)
           const opponent = await env.game_db.prepare("SELECT id, username, level, weapon_name FROM users WHERE id != ? ORDER BY RANDOM() LIMIT 1").bind(userId).first();
           
           if (!opponent) {
