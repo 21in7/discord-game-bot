@@ -51,20 +51,23 @@ export async function getUserOrCreate(userId, username, env) {
  * @returns {number} 파괴 확률 (%)
  */
 export function getDestroyRate(level) {
+  let rate;
   if (level <= 5) {
     // 0~5강: 0~6% (5강일 때 6%)
-    return (level / 5) * 6;
+    rate = (level / 5) * 6;
   } else if (level <= 10) {
     // 6~10강: 7~13% (10강일 때 13%)
-    return 7 + ((level - 5) / 5) * 6;
+    rate = 7 + ((level - 5) / 5) * 6;
   } else if (level <= 15) {
     // 11~15강: 14~21% (15강일 때 21%)
-    return 14 + ((level - 10) / 5) * 7;
+    rate = 14 + ((level - 10) / 5) * 7;
   } else if (level <= 20) {
     // 16~20강: 22~28% (20강일 때 28%)
-    return 22 + ((level - 15) / 5) * 6;
+    rate = 22 + ((level - 15) / 5) * 6;
   } else {
     // 21강 이상: 28% (최대)
-    return 28;
+    rate = 28;
   }
+  // 소수점 1자리로 반올림하여 부동소수점 오차 방지
+  return Math.round(rate * 10) / 10;
 }

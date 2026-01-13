@@ -48,7 +48,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
     // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
     const embedData = {
       title: `✨ ${username}님의 강화 성공!`,
-      description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
+      description: `⚔️ ${user.weapon_name} +${user.level}강 ➡️ +${user.level + 1}강\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate.toFixed(1)}%`,
       color: 0x00ff00 // 초록색
     };
     
@@ -105,7 +105,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
       // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
       const embedData = {
         title: `💥 ${username}님의 무기 파괴!`,
-        description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
+        description: `⚔️ ${user.weapon_name} +${user.level}강이 파괴되었습니다!\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n🎁 새 무기 획득: ${newWeapon.name} +0강\n📝 ${newWeaponDesc}\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate.toFixed(1)}%`,
         color: 0xff0000 // 빨간색
       };
       
@@ -164,7 +164,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
       // 먼저 기본 응답을 보냄 (Discord 3초 타임아웃 대응)
       const embedData = {
         title: `❌ ${username}님의 강화 실패...`,
-        description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate}%`,
+        description: `⚔️ ${user.weapon_name} +${user.level}강 (유지)\n💰 사용 금액: ${cost.toLocaleString()}원\n💵 남은 돈: ${remainingMoney.toLocaleString()}원\n\n📊 강화 확률:\n✅ 성공: ${successRate}%\n❌ 실패: ${failRate}%\n💥 파괴: ${destroyRate.toFixed(1)}%`,
         color: 0xffaa00 // 주황색
       };
       
