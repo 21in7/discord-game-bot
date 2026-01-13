@@ -7,12 +7,21 @@
  * @returns {Promise<object|null>} 무기 정보 또는 null
  */
 export async function getWeaponByName(name, env) {
+  // 무기 이름이 없거나 빈 문자열이면 null 반환
+  if (!name || typeof name !== 'string' || name.trim() === '') {
+    return null;
+  }
+  
   try {
+    // 공백 제거 후 조회
+    const trimmedName = name.trim();
     const weapon = await env.game_db.prepare(
       "SELECT * FROM weapons WHERE name = ?"
-    ).bind(name).first();
+    ).bind(trimmedName).first();
     return weapon || null;
-  } catch {
+  } catch (error) {
+    // 에러 발생 시 null 반환 (프로덕션에서는 로깅 제거 가능)
+    console.error(`[getWeaponByName] Error fetching weapon "${name}":`, error);
     return null;
   }
 }

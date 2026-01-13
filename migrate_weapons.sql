@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS weapons (
     image_filename TEXT
 );
 
--- 무기 데이터 삽입
-INSERT INTO weapons (name, base_price, description, weapon_type, tier, image_filename) VALUES
+-- 무기 데이터 삽입 (이미 존재하는 데이터는 무시)
+INSERT OR IGNORE INTO weapons (name, base_price, description, weapon_type, tier, image_filename) VALUES
 -- 검 타입
 ('나무 검', 100, '초보자용 나무로 만든 검. 가볍고 다루기 쉽다.', '검', '일반', 'wood_sword.png'),
 ('철 검', 500, '일반적인 철제 검. 기본적인 전투에 적합하다.', '검', '고급', 'iron_sword.png'),
