@@ -225,6 +225,26 @@ function calculatePower(level) {
   return Math.floor(Math.random() * (maxPower - minPower + 1)) + minPower;
 }
 
+// 파괴 확률 계산 (강화 단계별 구간 관리)
+function getDestroyRate(level) {
+  if (level <= 5) {
+    // 0~5강: 0~6% (5강일 때 6%)
+    return (level / 5) * 6;
+  } else if (level <= 10) {
+    // 6~10강: 7~13% (10강일 때 13%)
+    return 7 + ((level - 5) / 5) * 6;
+  } else if (level <= 15) {
+    // 11~15강: 14~21% (15강일 때 21%)
+    return 14 + ((level - 10) / 5) * 7;
+  } else if (level <= 20) {
+    // 16~20강: 22~28% (20강일 때 28%)
+    return 22 + ((level - 15) / 5) * 6;
+  } else {
+    // 21강 이상: 28% (최대)
+    return 28;
+  }
+}
+
 // 전투력 차이에 따른 무기 손상/파괴 처리 (최적화: user 정보를 파라미터로 받아 중복 쿼리 제거)
 async function handleWeaponDamage(userId, myPower, opponentPower, currentWeaponName, currentLevel, env) {
   // 전투력 차이 계산 (상대가 얼마나 강한지)
@@ -712,7 +732,7 @@ export default {
         const originalWeapon = user.weapon_name;
         
         const successRate = Math.max(10, 100 - (user.level * 5));
-        const destroyRate = Math.min(30, user.level * 2);
+        const destroyRate = getDestroyRate(user.level);
         const failRate = 100 - successRate - destroyRate;
         const random = Math.random() * 100;
         const isSuccess = random < successRate;
