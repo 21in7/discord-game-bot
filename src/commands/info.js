@@ -58,7 +58,7 @@ export async function handleInfoCommand(interaction, env, user, request) {
   
   // R2 Public URL 가져오기 (환경 변수 또는 기본값)
   const r2PublicUrl = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
-  const imageUrl = await getWeaponImageUrl(targetUser.weapon_name, r2PublicUrl, request.url, env);
+  const imageUrl = await getWeaponImageUrl(targetUser.weapon_name, r2PublicUrl, request?.url || null, env);
   if (imageUrl) {
     embedData.image = { url: imageUrl };
   }

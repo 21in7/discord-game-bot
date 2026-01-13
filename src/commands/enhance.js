@@ -52,7 +52,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
       color: 0x00ff00 // 초록색
     };
     
-    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
     if (imageUrl) {
       embedData.image = { url: imageUrl };
     }
@@ -110,7 +110,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
       };
       
       // 파괴된 무기 이미지 표시
-      const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+      const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
       if (imageUrl) {
         embedData.image = { url: imageUrl };
       }
@@ -168,7 +168,7 @@ export async function handleEnhanceCommand(interaction, env, user, request, ctx)
         color: 0xffaa00 // 주황색
       };
       
-      const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+      const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
       if (imageUrl) {
         embedData.image = { url: imageUrl };
       }

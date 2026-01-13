@@ -116,8 +116,8 @@ export async function getWeaponImageFilename(weaponName, env) {
  * R2 이미지 URL 생성 함수
  * 우선순위: 1. R2 Public URL (가장 빠름) > 2. Workers를 통한 R2 binding (fallback)
  * @param {string} weaponName - 무기 이름
- * @param {string} r2PublicUrl - R2 Public URL
- * @param {string|null} requestUrl - 요청 URL (fallback용)
+ * @param {string|null|undefined} r2PublicUrl - R2 Public URL
+ * @param {string|URL|null|undefined} requestUrl - 요청 URL (fallback용)
  * @param {object} env - 환경 변수 (game_db 포함)
  * @returns {Promise<string|null>} 이미지 URL 또는 null
  */
@@ -128,7 +128,7 @@ export async function getWeaponImageUrl(weaponName, r2PublicUrl, requestUrl = nu
   }
   
   // R2 Public URL이 설정되어 있으면 사용 (가장 빠름)
-  if (r2PublicUrl) {
+  if (r2PublicUrl && typeof r2PublicUrl === 'string' && r2PublicUrl.trim() !== '') {
     // R2 Public URL 끝에 슬래시가 없으면 추가
     const baseUrl = r2PublicUrl.endsWith('/') ? r2PublicUrl : `${r2PublicUrl}/`;
     return `${baseUrl}${weaponImageFilename}`;
@@ -137,8 +137,17 @@ export async function getWeaponImageUrl(weaponName, r2PublicUrl, requestUrl = nu
   // R2 Public URL이 없으면 Workers를 통해 제공 (fallback)
   // 이 경우 R2 binding을 사용하여 이미지를 제공
   if (requestUrl) {
-    const baseUrl = new URL(requestUrl);
-    return `${baseUrl.origin}/image/${weaponImageFilename}`;
+    try {
+      // requestUrl이 URL 객체인 경우 문자열로 변환
+      const urlString = typeof requestUrl === 'string' ? requestUrl : requestUrl.toString();
+      if (urlString && urlString.trim() !== '') {
+        const baseUrl = new URL(urlString);
+        return `${baseUrl.origin}/image/${weaponImageFilename}`;
+      }
+    } catch (error) {
+      // URL 파싱 실패 시 null 반환
+      return null;
+    }
   }
   
   return null;

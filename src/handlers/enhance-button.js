@@ -63,7 +63,7 @@ export async function handleEnhanceButton(interaction, env, request, ctx) {
       color: 0x00ff00
     };
     
-    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
     if (imageUrl) {
       embedData.image = { url: imageUrl };
     }
@@ -119,7 +119,7 @@ export async function handleEnhanceButton(interaction, env, request, ctx) {
       color: 0xff0000
     };
     
-    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
     if (imageUrl) {
       embedData.image = { url: imageUrl };
     }
@@ -177,7 +177,7 @@ export async function handleEnhanceButton(interaction, env, request, ctx) {
       color: 0xffaa00
     };
     
-    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url, env);
+    const imageUrl = await getWeaponImageUrl(user.weapon_name, r2PublicUrl, request?.url || null, env);
     if (imageUrl) {
       embedData.image = { url: imageUrl };
     }
