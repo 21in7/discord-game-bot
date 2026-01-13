@@ -46,6 +46,8 @@ Discord에서 무기를 강화하고, 몬스터나 다른 유저와 배틀하는
 
 ### 무기 시스템
 
+> **💡 모듈화**: 무기 정보는 D1 데이터베이스의 `weapons` 테이블에서 관리됩니다. 하드코딩된 무기 리스트 대신 데이터베이스에서 동적으로 조회하여 사용합니다.
+
 #### 무기 종류
 게임에는 3가지 무기 타입과 다양한 등급이 있습니다:
 
@@ -203,17 +205,29 @@ Discord에서 무기를 강화하고, 몬스터나 다른 유저와 배틀하는
 npm install
 ```
 
-### 2. 명령어 등록
+### 2. 데이터베이스 마이그레이션
+```bash
+# 기본 스키마 생성 (users 테이블)
+npx wrangler d1 execute game-db --file=./schema.sql
+
+# 무기 테이블 생성 및 데이터 삽입
+npx wrangler d1 execute game-db --file=./migrate_weapons.sql
+
+# AI 응답 템플릿 삽입 (선택사항)
+npx wrangler d1 execute game-db --file=./templates.sql
+```
+
+### 3. 명령어 등록
 ```bash
 node register.js
 ```
 
-### 3. Cloudflare Workers 배포
+### 4. Cloudflare Workers 배포
 ```bash
 npx wrangler deploy
 ```
 
-### 4. 이미지 업로드 (R2)
+### 5. 이미지 업로드 (R2)
 ```bash
 node scripts/upload-images.js
 ```
@@ -259,17 +273,39 @@ node scripts/upload-images.js
 ```
 discord-game-bot/
 ├── src/
-│   └── index.js          # 메인 봇 코드
-├── image/                 # 무기 이미지 파일
+│   ├── index.js                    # 메인 라우터 (요청 처리 및 라우팅)
+│   ├── commands/                   # 명령어 모듈
+│   │   ├── info.js                 # /정보 명령어
+│   │   ├── daily.js                # /출석 명령어
+│   │   ├── enhance.js              # /강화 명령어
+│   │   ├── battle.js               # /배틀 명령어
+│   │   ├── mourn.js                # /묵념 명령어
+│   │   ├── sell.js                 # /판매 명령어
+│   │   ├── ranking.js              # /랭킹 명령어
+│   │   └── bankruptcy.js           # /파산 명령어
+│   ├── modules/                    # 핵심 로직 모듈
+│   │   ├── weapons.js              # 무기 관련 함수 (DB 기반)
+│   │   ├── battle.js               # 전투 관련 함수
+│   │   └── user.js                 # 유저 관련 함수
+│   ├── handlers/                   # 버튼 핸들러
+│   │   ├── enhance-button.js       # 강화 버튼 처리
+│   │   ├── battle-button.js        # 배틀 버튼 처리
+│   │   ├── mourn-button.js         # 묵념 버튼 처리
+│   │   └── bankruptcy-button.js    # 파산 버튼 처리
+│   └── utils/                      # 유틸리티 함수
+│       ├── responses.js            # Discord 응답 생성
+│       └── ai.js                   # AI 응답 처리
+├── image/                          # 무기 이미지 파일
 ├── scripts/
-│   ├── upload-images.js   # R2 이미지 업로드 스크립트
-│   └── generate-templates.js  # AI 템플릿 생성
+│   ├── upload-images.js            # R2 이미지 업로드 스크립트
+│   └── generate-templates.js       # AI 템플릿 생성
 ├── test/
-│   └── index.spec.js      # 테스트 코드
-├── schema.sql             # 데이터베이스 스키마
-├── templates.sql          # AI 응답 템플릿
-├── register.js            # Discord 명령어 등록
-├── wrangler.jsonc         # Cloudflare Workers 설정
+│   └── index.spec.js               # 테스트 코드
+├── schema.sql                       # 데이터베이스 스키마 (users 테이블)
+├── migrate_weapons.sql             # 무기 테이블 마이그레이션
+├── templates.sql                    # AI 응답 템플릿
+├── register.js                      # Discord 명령어 등록
+├── wrangler.jsonc                   # Cloudflare Workers 설정
 └── package.json
 ```
 
@@ -281,12 +317,25 @@ discord-game-bot/
 ```sql
 CREATE TABLE users (
   id TEXT PRIMARY KEY,           -- Discord 유저 ID
-  username TEXT,                  -- 유저명
-  weapon_name TEXT DEFAULT '나무 검',  -- 현재 무기
-  level INTEGER DEFAULT 0,        -- 강화 레벨
-  money INTEGER DEFAULT 200000,   -- 보유 골드
-  wins INTEGER DEFAULT 0,         -- 승리 횟수
-  last_daily TEXT                 -- 마지막 출석일
+  username TEXT,                 -- 유저명
+  weapon_name TEXT,              -- 현재 무기 이름 (weapons 테이블 참조)
+  level INTEGER DEFAULT 0,       -- 강화 레벨
+  money INTEGER DEFAULT 200000,  -- 보유 골드
+  wins INTEGER DEFAULT 0,        -- 승리 횟수
+  last_daily TEXT                -- 마지막 출석일
+);
+```
+
+### weapons 테이블
+```sql
+CREATE TABLE weapons (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,     -- 무기 이름
+  base_price INTEGER NOT NULL,   -- 기본 가격
+  description TEXT NOT NULL,      -- 무기 설명
+  weapon_type TEXT NOT NULL,     -- 무기 타입 (검/도끼/지팡이)
+  tier TEXT NOT NULL,            -- 등급 (일반/고급/강철/미스릴/다이아몬드/드래곤/신/전설)
+  image_filename TEXT            -- 이미지 파일명
 );
 ```
 
@@ -297,6 +346,48 @@ CREATE TABLE ai_responses (
   result_type TEXT,              -- 결과 타입 (success, failure, destroyed)
   response TEXT                  -- 응답 템플릿
 );
+```
+
+> **참고**: 무기 정보는 이제 하드코딩되지 않고 데이터베이스에서 관리됩니다. 새로운 무기를 추가하거나 기존 무기 정보를 수정하려면 `weapons` 테이블을 업데이트하면 됩니다.
+
+---
+
+## 🛠️ 개발 가이드
+
+### 코드 구조
+
+이 프로젝트는 모듈화된 구조로 설계되었습니다:
+
+- **명령어 모듈** (`src/commands/`): 각 Discord 슬래시 명령어의 로직을 독립적인 모듈로 분리
+- **핵심 로직 모듈** (`src/modules/`): 무기, 전투, 유저 관련 핵심 비즈니스 로직
+- **버튼 핸들러** (`src/handlers/`): Discord 버튼 인터랙션 처리
+- **유틸리티** (`src/utils/`): 공통 유틸리티 함수들
+
+### 무기 데이터 관리
+
+무기 정보는 `weapons` 테이블에서 관리됩니다. 새로운 무기를 추가하려면:
+
+```sql
+INSERT INTO weapons (name, base_price, description, weapon_type, tier, image_filename) 
+VALUES ('새 무기', 1000, '설명', '검', '일반', 'new_weapon.png');
+```
+
+무기 정보 수정도 데이터베이스 쿼리로 직접 수행할 수 있습니다.
+
+### 데이터베이스 마이그레이션
+
+로컬 개발 환경에서 마이그레이션을 테스트하려면:
+
+```bash
+# 로컬 D1 데이터베이스에 마이그레이션 실행
+npx wrangler d1 execute game-db --local --file=./migrate_weapons.sql
+```
+
+프로덕션 환경에 적용하려면:
+
+```bash
+# 프로덕션 D1 데이터베이스에 마이그레이션 실행
+npx wrangler d1 execute game-db --file=./migrate_weapons.sql
 ```
 
 ---
