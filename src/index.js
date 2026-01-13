@@ -904,20 +904,56 @@ export default {
       
       // [정보]
       if (name === '정보') {
-        const sellPrice = getWeaponSellPrice(user.weapon_name, user.level);
-        const weaponDesc = getWeaponDescription(user.weapon_name);
-        const weaponImageFilename = getWeaponImageFilename(user.weapon_name);
+        // 옵션에서 유저 지정 확인
+        const targetOption = interaction.data.options?.find(opt => opt.name === '유저');
+        const targetUserId = targetOption?.value;
+        
+        let targetUser = user;
+        let targetUsername = username;
+        let isOwnProfile = true;
+        
+        // 다른 유저 정보 조회
+        if (targetUserId) {
+          isOwnProfile = String(targetUserId) === String(userId);
+          
+          if (!isOwnProfile) {
+            const targetUserData = await env.game_db.prepare("SELECT level, money, wins, weapon_name FROM users WHERE id = ?").bind(targetUserId).first();
+            
+            if (!targetUserData) {
+              return jsonResponse({
+                type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                data: { content: '❌ 해당 유저가 게임에 등록되어 있지 않습니다!\n`/정보` 명령어로 먼저 등록해주세요.', flags: 64 }
+              });
+            }
+            
+            // 유저 이름 가져오기 (interaction에서 resolved users 확인)
+            const targetUserInfo = interaction.data.resolved?.users?.[targetUserId];
+            targetUsername = targetUserInfo?.username || '알 수 없음';
+            targetUser = targetUserData;
+            
+            // 무기 이름이 없으면 랜덤 생성
+            if (!targetUser.weapon_name) {
+              const newWeapon = generateRandomWeapon();
+              await env.game_db.prepare("UPDATE users SET weapon_name = ? WHERE id = ?").bind(newWeapon.name, targetUserId).run();
+              targetUser.weapon_name = newWeapon.name;
+            }
+          }
+        }
+        
+        const sellPrice = getWeaponSellPrice(targetUser.weapon_name, targetUser.level);
+        const weaponDesc = getWeaponDescription(targetUser.weapon_name);
+        const weaponImageFilename = getWeaponImageFilename(targetUser.weapon_name);
         
         // Embed 데이터 구성
         const embedData = {
-          title: `📊 ${username}님의 프로필`,
-          description: `- ⚔️ 무기: ${user.weapon_name} +${user.level}강 (판매가: ${sellPrice.toLocaleString()}원)\n  📝 ${weaponDesc}\n- 💰 자금: ${user.money.toLocaleString()}원\n- 🏆 승리: ${user.wins}회`,
+          title: `📊 ${targetUsername}님의 프로필`,
+          description: `- ⚔️ 무기: ${targetUser.weapon_name} +${targetUser.level}강 (판매가: ${sellPrice.toLocaleString()}원)\n  📝 ${weaponDesc}\n- 💰 자금: ${targetUser.money.toLocaleString()}원\n- 🏆 승리: ${targetUser.wins}회`,
           color: 0x00ff00 // 초록색
         };
         
         // R2 Public URL 가져오기 (환경 변수 또는 기본값)
         const r2PublicUrl = env.R2_PUBLIC_URL || env.R2_IMAGE_BASE_URL;
-        const imageUrl = getWeaponImageUrl(user.weapon_name, r2PublicUrl, request.url);
+        const imageUrl = getWeaponImageUrl(targetUser.weapon_name, r2PublicUrl, request.url);
         if (imageUrl) {
           embedData.image = { url: imageUrl };
         }

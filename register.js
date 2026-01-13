@@ -6,7 +6,18 @@ const token = process.env.DISCORD_TOKEN;
 const applicationId = process.env.DISCORD_APPLICATION_ID;
 
 const commands = [
-  { name: '정보', description: '내 정보를 확인합니다.' },
+  { 
+    name: '정보', 
+    description: '내 정보 또는 다른 유저의 정보를 확인합니다.',
+    options: [
+      {
+        name: '유저',
+        description: '정보를 확인할 유저를 지정합니다. (미지정 시 본인 정보)',
+        type: 6, // USER type
+        required: false
+      }
+    ]
+  },
   { name: '출석', description: '매일 지원금을 받습니다.' },
   { name: '강화', description: '무기를 강화합니다.' },
   { name: '판매', description: '현재 무기를 판매하고 새 무기를 받습니다.' },
